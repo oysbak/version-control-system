@@ -1,6 +1,7 @@
 package svcs
 
 fun main(args: Array<String>) {
+    // Hello World!
     if (args.isEmpty() || args[0] == "--help") {
         println(getHelpPage())
     } else {
