@@ -1,90 +1,148 @@
 package svcs
 
-import java.io.File
-import kotlin.io.path.Path
+import java.lang.StringBuilder
+import java.nio.file.Files
+import java.nio.file.Path
+import java.util.UUID
+import kotlin.io.path.createDirectories
 import kotlin.io.path.createDirectory
+import kotlin.io.path.createFile
 import kotlin.io.path.exists
 
-fun main(args: Array<String>) {
+const val VCS_ROOT = "vcs"
+const val COMMITS_DIRECTORY = "$VCS_ROOT/commits"
+const val CONFIG_FILE = "$VCS_ROOT/config.txt"
+const val INDEX_FILE = "$VCS_ROOT/index.txt"
+const val LOG_FILE = "$VCS_ROOT/log.txt"
+
+fun directoryCreate(directory: String) = Path.of(directory).createDirectory()
+fun fileCreate(filename: String) = Path.of(filename).createFile()
+fun fileWrite(filename: String, text: String) = Path.of(filename).toFile().writeText(text)
+fun fileAppend(filename: String, text: String) = Path.of(filename).toFile().appendText(text)
+fun fileRead(filename: String) = Path.of(filename).toFile().readText()
+fun fileExists(filename: String) = Path.of(filename).exists()
+fun fileCopy(filename: String, fromDirectory: String, toDirectory: String) {
+    Files.copy(Path.of(filename), Path.of("$toDirectory/$filename"))
+}
+
+fun createFileStructure() {
+    if (!Path.of(VCS_ROOT).exists()) {
+        Path.of("$VCS_ROOT/commits").createDirectories()
+        Files.createFile(Path.of("$VCS_ROOT/config.txt"))
+        Files.createFile(Path.of("$VCS_ROOT/index.txt"))
+        Files.createFile(Path.of("$VCS_ROOT/log.txt"))
+    }
+}
+
+fun main() {
+    do {
+        print("> ")
+        test(readln().split(" ").toTypedArray())
+    } while (true)
+}
+
+fun test(args: Array<String>) {
+    createFileStructure()
     val userInput = UserInput(args)
     when (userInput.command) {
-        "", "--help" -> printHelpPage()
-        "add" -> Add(userInput.name)
-        "checkout" -> println("Restore a file.")
-        "commit" -> println("Save changes.")
-        "config" -> Config(userInput.name)
-        "log" -> println("Show commit logs.")
-        else -> println("'${userInput.command}' is not a SVCS command.")
-    }
+        "", "--help" -> getHelpPage()
+        "add" -> add(userInput)
+        "checkout" -> checkout(userInput)
+        "commit" -> commit(userInput)
+        "config" -> config(userInput)
+        "log" -> log()
+        else -> "'${userInput.command}' is not a SVCS command."
+    }.also { println(it) }
 }
 
-class Config(inputName: String) {
-    private val configFile = ProjectFile("vcs", "config.txt", "")
+fun checkout(userInput: UserInput): String = "Restore a file."
 
-    init {
-        if (inputName.isNotEmpty()) {
-            configFile.write(inputName)
-        }
-        val nameOnFile = configFile.read()
-        if (nameOnFile.isEmpty()) {
-            println("Please, tell me who you are.")
-        } else {
-            println("The username is $nameOnFile.")
-        }
-    }
+fun checkIfChanges(): Boolean { // get latest commit id from log.txt
+    val commitId = fileRead(LOG_FILE).split("\n")[0].replace("commit ", "")
+    return false
 }
 
-class Add(filename: String) {
-    private val indexFile = ProjectFile("vcs", "index.txt", "Tracked files:")
-
-    init {
-        if (filename.isNotEmpty()) {
-            if (File(filename).exists()) {
-                indexFile.append("\n$filename")
-                println("The file '$filename' is tracked.")
-            } else {
-                println("Can't find '$filename'.")
+fun commit(userInput: UserInput): String {
+    val message = userInput.parameter
+    return if (message.isEmpty()) {
+        "Message was not passed."
+    } else {
+        val UID = UUID.randomUUID()
+        val directoryPath = "$COMMITS_DIRECTORY/$UID"
+        directoryCreate(directoryPath)
+        fileRead(INDEX_FILE).split("\n").forEach {
+            if (!it.isEmpty()) {
+                fileCopy(it, "", directoryPath)
             }
         }
-        val filesOnFile = indexFile.read()
-        if (filesOnFile.length < 15) {
-            println("Add a file to the index.")
-        } else {
-            if (filename.isEmpty()) {
-                println(filesOnFile)
-            }
+        val author = fileRead(CONFIG_FILE)
+        fileWrite(LOG_FILE, "commit $UID\nAuthor: $author\n$message")
+        "Changes are committed."
+    }
+}
+
+fun log(): String {
+    fileRead(LOG_FILE).also {
+        return it.ifEmpty {
+            "No commits yet."
         }
     }
 }
 
-class ProjectFile(directory: String, filename: String, initialContent: String) {
-    private val file = File("$directory/$filename")
+fun config(userInput: UserInput): String {
+    val name = userInput.parameter
+    if (name.isNotEmpty()) {
+        fileWrite(CONFIG_FILE, name)
+    }
+    val nameOnFile = fileRead(CONFIG_FILE)
+    return if (nameOnFile.isEmpty()) {
+        "Please, tell me who you are."
+    } else {
+        "The username is $nameOnFile."
+    }
+}
+
+fun add(userInput: UserInput): String {
+    val filenameToAdd = userInput.parameter
+    return if (filenameToAdd.isNotEmpty()) {
+        if (fileExists(filenameToAdd)) {
+            fileAppend(INDEX_FILE, "$filenameToAdd\n")
+            "The file '$filenameToAdd' is tracked."
+        } else {
+            "Can't find '$filenameToAdd'."
+        }
+    } else {
+        val filesOnFile = fileRead(INDEX_FILE)
+        if (filesOnFile.isEmpty()) {
+            "Add a file to the index."
+        } else {
+            "Tracked files:\n$filesOnFile"
+        }
+    }
+}
+
+class UserInput(args: Array<String>?) {
+    private val arguments = arrayOf("--help", "", "")
+    val command: String
+    val parameter: String
 
     init {
-        if (!Path(directory).exists()) {
-            Path(directory).createDirectory()
+        if (!args.isNullOrEmpty()) {
+            (args.indices).forEach {
+                if (args[it].isNotEmpty()) {
+                    arguments[it] = args[it]
+                }
+            }
         }
-        if (!file.exists()) {
-            file.writeText(initialContent)
-        }
+        command = arguments[0]
+        parameter = arguments[1]
     }
-
-    fun read() = file.readText().trim()
-    fun write(text: String) = file.writeText(text)
-    fun append(text: String) = file.appendText(text)
 }
 
-class UserInput(args: Array<String>) {
-    val command = if (args.isEmpty()) "--help" else args[0].trim().lowercase()
-    val name = if (args.size > 1) args[1].trim().lowercase() else ""
-    fun isNotEmpty() = name.isNotEmpty()
-}
-
-fun printHelpPage() {
-    println("These are SVCS commands:")
-    println("config     Get and set a username.")
-    println("add        Add a file to the index.")
-    println("log        Show commit logs.")
-    println("commit     Save changes.")
-    println("checkout   Restore a file.")
-}
+fun getHelpPage() = StringBuilder("These are SVCS commands:\n").also {
+    it.appendLine("config     Get and set a username.")
+    it.appendLine("add        Add a file to the index.")
+    it.appendLine("log        Show commit logs.")
+    it.appendLine("commit     Save changes.")
+    it.appendLine("checkout   Restore a file.")
+}.toString()
