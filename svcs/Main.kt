@@ -1,6 +1,5 @@
 package svcs
 
-import java.lang.StringBuilder
 import java.nio.file.Files
 import java.nio.file.Path
 import java.util.UUID
@@ -8,6 +7,9 @@ import kotlin.io.path.createDirectories
 import kotlin.io.path.createDirectory
 import kotlin.io.path.createFile
 import kotlin.io.path.exists
+import kotlin.io.path.isRegularFile
+import kotlin.io.path.name
+import kotlin.streams.toList
 
 const val VCS_ROOT = "vcs"
 const val COMMITS_DIRECTORY = "$VCS_ROOT/commits"
@@ -21,9 +23,7 @@ fun fileWrite(filename: String, text: String) = Path.of(filename).toFile().write
 fun fileAppend(filename: String, text: String) = Path.of(filename).toFile().appendText(text)
 fun fileRead(filename: String) = Path.of(filename).toFile().readText()
 fun fileExists(filename: String) = Path.of(filename).exists()
-fun fileCopy(filename: String, fromDirectory: String, toDirectory: String) {
-    Files.copy(Path.of(filename), Path.of("$toDirectory/$filename"))
-}
+fun fileCopy(filePathFrom: String, filePathTo: String): Path = Files.copy(Path.of(filePathFrom), Path.of(filePathTo))
 
 fun createFileStructure() {
     if (!Path.of(VCS_ROOT).exists()) {
@@ -34,31 +34,47 @@ fun createFileStructure() {
     }
 }
 
-fun main() {
-    do {
-        print("> ")
-        test(readln().split(" ").toTypedArray())
-    } while (true)
-}
-
-fun test(args: Array<String>) {
+fun main(args: Array<String>) {
     createFileStructure()
     val userInput = UserInput(args)
     when (userInput.command) {
         "", "--help" -> getHelpPage()
         "add" -> add(userInput)
-        "checkout" -> checkout(userInput)
+        "checkout" -> checkout()
         "commit" -> commit(userInput)
         "config" -> config(userInput)
         "log" -> log()
+        "fil" -> fil(userInput)
+        "exit" -> "..bye"
         else -> "'${userInput.command}' is not a SVCS command."
     }.also { println(it) }
 }
 
-fun checkout(userInput: UserInput): String = "Restore a file."
+fun fil(userInput: UserInput): String {
+    val nameAndContent = userInput.parameter.split(" ", ignoreCase = false, limit = 2).toTypedArray()
+    if (!fileExists(nameAndContent[0])) {
+        fileCreate(nameAndContent[0])
+    }
+    fileWrite(nameAndContent[0], nameAndContent[1])
+    return "fil opprettet/endret"
+}
 
-fun checkIfChanges(): Boolean { // get latest commit id from log.txt
-    val commitId = fileRead(LOG_FILE).split("\n")[0].replace("commit ", "")
+fun isChanges(): Boolean {
+    val loggedFiles = fileRead(INDEX_FILE).split("\n").toList().filter { it.isNotEmpty() }.sorted().toList()
+    val latestCommitId = fileRead(LOG_FILE).split("\n")[0].replace("commit ", "")
+    val commitedFiles = Files.walk(Path.of("$COMMITS_DIRECTORY/$latestCommitId")).filter { it.isRegularFile() }.map { it.name }.toList<String>()
+
+    if (loggedFiles.size != commitedFiles.toList().size) {
+        return true
+    }
+
+    loggedFiles.forEach { filename ->
+        val innhold = fileRead(filename)
+        val tidligere = fileRead("$COMMITS_DIRECTORY/$latestCommitId/$filename")
+        if (innhold != tidligere) {
+            return true
+        }
+    }
     return false
 }
 
@@ -67,17 +83,23 @@ fun commit(userInput: UserInput): String {
     return if (message.isEmpty()) {
         "Message was not passed."
     } else {
-        val UID = UUID.randomUUID()
-        val directoryPath = "$COMMITS_DIRECTORY/$UID"
-        directoryCreate(directoryPath)
-        fileRead(INDEX_FILE).split("\n").forEach {
-            if (!it.isEmpty()) {
-                fileCopy(it, "", directoryPath)
+        if (isChanges()) {
+            UUID.randomUUID().also { uuid ->
+                "$COMMITS_DIRECTORY/$uuid".also { directorypath ->
+                    directoryCreate(directorypath)
+                    fileRead(INDEX_FILE).split("\n").forEach { filename ->
+                        if (filename.isNotEmpty()) {
+                            fileCopy(filename, "$directorypath/$filename")
+                        }
+                    }
+                }
+                val author = fileRead(CONFIG_FILE)
+                fileWrite(LOG_FILE, "commit $uuid\nAuthor: $author\n$message\n\n${fileRead(LOG_FILE)}")
             }
+            "Changes are committed."
+        } else {
+            "Nothing to commit."
         }
-        val author = fileRead(CONFIG_FILE)
-        fileWrite(LOG_FILE, "commit $UID\nAuthor: $author\n$message")
-        "Changes are committed."
     }
 }
 
@@ -119,7 +141,10 @@ fun add(userInput: UserInput): String {
             "Tracked files:\n$filesOnFile"
         }
     }
+
 }
+
+fun checkout(): String = "Restore a file."
 
 class UserInput(args: Array<String>?) {
     private val arguments = arrayOf("--help", "", "")
