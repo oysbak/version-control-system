@@ -14,13 +14,12 @@ const val INDEX_FILE = "$VCS_ROOT/index.txt"
 const val LOG_FILE = "$VCS_ROOT/log.txt"
 
 fun directoryCreate(directory: String) = Path.of(directory).createDirectory()
-fun fileCreate(filename: String) = Path.of(filename).createFile()
 fun fileWrite(filename: String, text: String) = Path.of(filename).toFile().writeText(text)
 fun fileAppend(filename: String, text: String) = Path.of(filename).toFile().appendText(text)
 fun fileRead(filename: String) = Path.of(filename).toFile().readText()
 fun fileExists(filename: String) = Path.of(filename).exists()
-fun fileCopy(filePathFrom: String, filePathTo: String): Path
-    = Files.copy(Path.of(filePathFrom), Path.of(filePathTo), StandardCopyOption.REPLACE_EXISTING)
+fun fileCopy(filePathFrom: String, filePathTo: String): Path =
+    Files.copy(Path.of(filePathFrom), Path.of(filePathTo), StandardCopyOption.REPLACE_EXISTING)
 
 fun createFileStructure() {
     if (!Path.of(VCS_ROOT).exists()) {
@@ -30,14 +29,6 @@ fun createFileStructure() {
         Files.createFile(Path.of("$VCS_ROOT/log.txt"))
     }
 }
-
-//fun main() {
-//    do {
-//        print("> ")
-//        val input = UserInput.splitString(readln())
-//        test(input)
-//    } while (input[0] != "exit")
-//}
 
 fun main(args: Array<String>) {
     createFileStructure()
@@ -49,26 +40,47 @@ fun main(args: Array<String>) {
         "commit" -> commit(userInput)
         "config" -> config(userInput)
         "log" -> log()
-        "file" -> file(userInput)
-        "exit" -> "bye..."
         else -> "'${userInput.command}' is not a SVCS command."
     }.also { println(it) }
 }
 
-fun checkout(userInput: UserInput): String {
-    if (userInput.parameter.isEmpty()) {
-        return "Commit id was not passed."
+fun config(userInput: UserInput): String {
+    val name = userInput.parameter
+    if (name.isNotEmpty()) {
+        fileWrite(CONFIG_FILE, name)
     }
-    val path = "$COMMITS_DIRECTORY/${userInput.parameter}"
-    return if (!fileExists(path)) {
-        "Commit does not exist."
+    val nameOnFile = fileRead(CONFIG_FILE)
+    return if (nameOnFile.isEmpty()) {
+        "Please, tell me who you are."
     } else {
-        // Copy all files from commitdirectory back to root-directory
-        val committedFiles = Files.walk(Path.of(path)).filter { it.isRegularFile() }.map { it.name }.toList<String>()
-        committedFiles.forEach { filename ->
-            fileCopy("$path/$filename", filename)
+        "The username is $nameOnFile."
+    }
+}
+
+fun add(userInput: UserInput): String {
+    val filenameToAdd = userInput.parameter
+    return if (filenameToAdd.isNotEmpty()) {
+        if (fileExists(filenameToAdd)) {
+            fileAppend(INDEX_FILE, "$filenameToAdd\n")
+            "The file '$filenameToAdd' is tracked."
+        } else {
+            "Can't find '$filenameToAdd'."
         }
-        "Switched to commit ${userInput.parameter}."
+    } else {
+        val filesOnFile = fileRead(INDEX_FILE)
+        if (filesOnFile.isEmpty()) {
+            "Add a file to the index."
+        } else {
+            "Tracked files:\n$filesOnFile"
+        }
+    }
+}
+
+fun log(): String {
+    fileRead(LOG_FILE).also {
+        return it.ifEmpty {
+            "No commits yet."
+        }
     }
 }
 
@@ -118,43 +130,20 @@ fun commit(userInput: UserInput): String {
     }
 }
 
-fun log(): String {
-    fileRead(LOG_FILE).also {
-        return it.ifEmpty {
-            "No commits yet."
-        }
+fun checkout(userInput: UserInput): String {
+    if (userInput.parameter.isEmpty()) {
+        return "Commit id was not passed."
     }
-}
-
-fun config(userInput: UserInput): String {
-    val name = userInput.parameter
-    if (name.isNotEmpty()) {
-        fileWrite(CONFIG_FILE, name)
-    }
-    val nameOnFile = fileRead(CONFIG_FILE)
-    return if (nameOnFile.isEmpty()) {
-        "Please, tell me who you are."
+    val path = "$COMMITS_DIRECTORY/${userInput.parameter}"
+    return if (!fileExists(path)) {
+        "Commit does not exist."
     } else {
-        "The username is $nameOnFile."
-    }
-}
-
-fun add(userInput: UserInput): String {
-    val filenameToAdd = userInput.parameter
-    return if (filenameToAdd.isNotEmpty()) {
-        if (fileExists(filenameToAdd)) {
-            fileAppend(INDEX_FILE, "$filenameToAdd\n")
-            "The file '$filenameToAdd' is tracked."
-        } else {
-            "Can't find '$filenameToAdd'."
+        // Copy all files from commitdirectory back to root-directory
+        val committedFiles = Files.walk(Path.of(path)).filter { it.isRegularFile() }.map { it.name }.toList<String>()
+        committedFiles.forEach { filename ->
+            fileCopy("$path/$filename", filename)
         }
-    } else {
-        val filesOnFile = fileRead(INDEX_FILE)
-        if (filesOnFile.isEmpty()) {
-            "Add a file to the index."
-        } else {
-            "Tracked files:\n$filesOnFile"
-        }
+        "Switched to commit ${userInput.parameter}."
     }
 }
 
@@ -165,15 +154,6 @@ fun getHelpPage() = StringBuilder("These are SVCS commands:\n").also {
     it.appendLine("commit     Save changes.")
     it.appendLine("checkout   Restore a file.")
 }.toString()
-
-fun file(userInput: UserInput): String {
-    val nameAndContent = userInput.parameter.split(" ", ignoreCase = false, limit = 2).toTypedArray()
-    if (!fileExists(nameAndContent[0])) {
-        fileCreate(nameAndContent[0])
-    }
-    fileWrite(nameAndContent[0], nameAndContent[1])
-    return "file created/changed"
-}
 
 class UserInput(args: Array<String>?) {
     private val arguments = arrayOf("--help", "", "")
@@ -191,10 +171,4 @@ class UserInput(args: Array<String>?) {
         command = arguments[0]
         parameter = arguments[1]
     }
-
-//    companion object {
-//        fun splitString(input: String): Array<String> {
-//            return input.split(" ", ignoreCase = false, limit = 2).toTypedArray()
-//        }
-//    }
 }
