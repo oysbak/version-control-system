@@ -2,13 +2,9 @@ package svcs
 
 import java.nio.file.Files
 import java.nio.file.Path
-import java.util.UUID
-import kotlin.io.path.createDirectories
-import kotlin.io.path.createDirectory
-import kotlin.io.path.createFile
-import kotlin.io.path.exists
-import kotlin.io.path.isRegularFile
-import kotlin.io.path.name
+import java.nio.file.StandardCopyOption
+import java.util.*
+import kotlin.io.path.*
 import kotlin.streams.toList
 
 const val VCS_ROOT = "vcs"
@@ -23,7 +19,8 @@ fun fileWrite(filename: String, text: String) = Path.of(filename).toFile().write
 fun fileAppend(filename: String, text: String) = Path.of(filename).toFile().appendText(text)
 fun fileRead(filename: String) = Path.of(filename).toFile().readText()
 fun fileExists(filename: String) = Path.of(filename).exists()
-fun fileCopy(filePathFrom: String, filePathTo: String): Path = Files.copy(Path.of(filePathFrom), Path.of(filePathTo))
+fun fileCopy(filePathFrom: String, filePathTo: String): Path
+    = Files.copy(Path.of(filePathFrom), Path.of(filePathTo), StandardCopyOption.REPLACE_EXISTING)
 
 fun createFileStructure() {
     if (!Path.of(VCS_ROOT).exists()) {
@@ -34,44 +31,62 @@ fun createFileStructure() {
     }
 }
 
+//fun main() {
+//    do {
+//        print("> ")
+//        val input = UserInput.splitString(readln())
+//        test(input)
+//    } while (input[0] != "exit")
+//}
+
 fun main(args: Array<String>) {
     createFileStructure()
     val userInput = UserInput(args)
     when (userInput.command) {
         "", "--help" -> getHelpPage()
         "add" -> add(userInput)
-        "checkout" -> checkout()
+        "checkout" -> checkout(userInput)
         "commit" -> commit(userInput)
         "config" -> config(userInput)
         "log" -> log()
-        "fil" -> fil(userInput)
-        "exit" -> "..bye"
+        "file" -> file(userInput)
+        "exit" -> "bye..."
         else -> "'${userInput.command}' is not a SVCS command."
     }.also { println(it) }
 }
 
-fun fil(userInput: UserInput): String {
-    val nameAndContent = userInput.parameter.split(" ", ignoreCase = false, limit = 2).toTypedArray()
-    if (!fileExists(nameAndContent[0])) {
-        fileCreate(nameAndContent[0])
+fun checkout(userInput: UserInput): String {
+    if (userInput.parameter.isEmpty()) {
+        return "Commit id was not passed."
     }
-    fileWrite(nameAndContent[0], nameAndContent[1])
-    return "fil opprettet/endret"
+    val path = "$COMMITS_DIRECTORY/${userInput.parameter}"
+    return if (!fileExists(path)) {
+        "Commit does not exist."
+    } else {
+        // Copy all files from commitdirectory back to root-directory
+        val committedFiles = Files.walk(Path.of(path)).filter { it.isRegularFile() }.map { it.name }.toList<String>()
+        committedFiles.forEach { filename ->
+            fileCopy("$path/$filename", filename)
+        }
+        "Switched to commit ${userInput.parameter}."
+    }
 }
 
 fun isChanges(): Boolean {
     val loggedFiles = fileRead(INDEX_FILE).split("\n").toList().filter { it.isNotEmpty() }.sorted().toList()
     val latestCommitId = fileRead(LOG_FILE).split("\n")[0].replace("commit ", "")
-    val commitedFiles = Files.walk(Path.of("$COMMITS_DIRECTORY/$latestCommitId")).filter { it.isRegularFile() }.map { it.name }.toList<String>()
+    val committedFiles =
+        Files.walk(Path.of("$COMMITS_DIRECTORY/$latestCommitId")).filter { it.isRegularFile() }.map { it.name }
+            .toList<String>()
 
-    if (loggedFiles.size != commitedFiles.toList().size) {
+    if (loggedFiles.size != committedFiles.toList().size) {
         return true
     }
 
     loggedFiles.forEach { filename ->
-        val innhold = fileRead(filename)
-        val tidligere = fileRead("$COMMITS_DIRECTORY/$latestCommitId/$filename")
-        if (innhold != tidligere) {
+        val current = fileRead(filename)
+        val previous = fileRead("$COMMITS_DIRECTORY/$latestCommitId/$filename")
+        if (current != previous) {
             return true
         }
     }
@@ -85,11 +100,11 @@ fun commit(userInput: UserInput): String {
     } else {
         if (isChanges()) {
             UUID.randomUUID().also { uuid ->
-                "$COMMITS_DIRECTORY/$uuid".also { directorypath ->
-                    directoryCreate(directorypath)
+                "$COMMITS_DIRECTORY/$uuid".also { directoryPath ->
+                    directoryCreate(directoryPath)
                     fileRead(INDEX_FILE).split("\n").forEach { filename ->
                         if (filename.isNotEmpty()) {
-                            fileCopy(filename, "$directorypath/$filename")
+                            fileCopy(filename, "$directoryPath/$filename")
                         }
                     }
                 }
@@ -141,10 +156,24 @@ fun add(userInput: UserInput): String {
             "Tracked files:\n$filesOnFile"
         }
     }
-
 }
 
-fun checkout(): String = "Restore a file."
+fun getHelpPage() = StringBuilder("These are SVCS commands:\n").also {
+    it.appendLine("config     Get and set a username.")
+    it.appendLine("add        Add a file to the index.")
+    it.appendLine("log        Show commit logs.")
+    it.appendLine("commit     Save changes.")
+    it.appendLine("checkout   Restore a file.")
+}.toString()
+
+fun file(userInput: UserInput): String {
+    val nameAndContent = userInput.parameter.split(" ", ignoreCase = false, limit = 2).toTypedArray()
+    if (!fileExists(nameAndContent[0])) {
+        fileCreate(nameAndContent[0])
+    }
+    fileWrite(nameAndContent[0], nameAndContent[1])
+    return "file created/changed"
+}
 
 class UserInput(args: Array<String>?) {
     private val arguments = arrayOf("--help", "", "")
@@ -162,12 +191,10 @@ class UserInput(args: Array<String>?) {
         command = arguments[0]
         parameter = arguments[1]
     }
-}
 
-fun getHelpPage() = StringBuilder("These are SVCS commands:\n").also {
-    it.appendLine("config     Get and set a username.")
-    it.appendLine("add        Add a file to the index.")
-    it.appendLine("log        Show commit logs.")
-    it.appendLine("commit     Save changes.")
-    it.appendLine("checkout   Restore a file.")
-}.toString()
+//    companion object {
+//        fun splitString(input: String): Array<String> {
+//            return input.split(" ", ignoreCase = false, limit = 2).toTypedArray()
+//        }
+//    }
+}
